@@ -33,6 +33,13 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
+osPoolId          cdcRxPoolhandle;
+osPoolDef         (CdcRxPool, 100, CdcRxBuff_TypeDef);
+
+osMessageQId      (cdcRxMsgHandle);           // Declare an ID for the message queue
+osMessageQDef     (cdcRxMsg, 100, uint32_t);   // Declare a message queue
+
+
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -63,6 +70,9 @@
   */
 
 /* USER CODE BEGIN PRIVATE_DEFINES */
+
+
+
 /* USER CODE END PRIVATE_DEFINES */
 
 /**
@@ -130,6 +140,8 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *pbuf, uint32_t *Len, uint8_t epnum);
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_DECLARATION */
 
+void InitRTOSObjects(void);
+
 /* USER CODE END PRIVATE_FUNCTIONS_DECLARATION */
 
 /**
@@ -153,6 +165,7 @@ USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
 static int8_t CDC_Init_FS(void)
 {
   /* USER CODE BEGIN 3 */
+
   /* Set Application Buffers */
   USBD_CDC_SetTxBuffer(&hUsbDeviceFS, UserTxBufferFS, 0);
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
@@ -262,8 +275,27 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+
+  // put the data to the pool, and than notify the user task to handle the data.
+  CdcRxBuff_TypeDef *pPool = (CdcRxBuff_TypeDef *) osPoolAlloc(cdcRxPoolhandle);
+
+  if(*Len <= 64)
+  {
+    memcpy((uint8_t*)pPool->bufCdcRx, Buf, *Len);
+    pPool->Length = *Len;
+  }
+  else
+  {
+    // Unexpected data length!!
+    while(1);
+  }
+
+  // notify the user task.
+  osMessagePut(cdcRxMsgHandle, (uint32_t)pPool, osWaitForever);
+  
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+
   return (USBD_OK);
   /* USER CODE END 6 */
 }
@@ -317,6 +349,18 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 }
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
+
+
+/**
+ * @brief Initialize the objects used in the RTOS.
+ * 
+ */
+void InitRTOSObjects(void)
+{
+  // create the pool to save the RX data.
+  cdcRxPoolhandle = osPoolCreate(osPool(CdcRxPool));
+  cdcRxMsgHandle = osMessageCreate(osMessageQ(cdcRxMsg), NULL);
+}
 
 /* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */
 

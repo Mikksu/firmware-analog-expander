@@ -31,7 +31,7 @@
 #include "usbd_cdc.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#include "cmsis_os.h"
 /* USER CODE END INCLUDE */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -66,6 +66,17 @@
 
 /* USER CODE BEGIN EXPORTED_TYPES */
 
+
+/**
+ * @brief   The type of the pool to transfer the received package from VCP.
+ */
+typedef struct
+{
+  uint8_t   bufCdcRx[64];
+  uint32_t  Length;
+
+} CdcRxBuff_TypeDef;
+
 /* USER CODE END EXPORTED_TYPES */
 
 /**
@@ -95,6 +106,8 @@ extern USBD_CDC_ItfTypeDef USBD_Interface_fops_FS;
 
 /* USER CODE BEGIN EXPORTED_VARIABLES */
 
+extern osPoolId          (cdcRxPoolhandle);
+extern osMessageQId      (cdcRxMsgHandle);
 /* USER CODE END EXPORTED_VARIABLES */
 
 /**
@@ -109,6 +122,8 @@ extern USBD_CDC_ItfTypeDef USBD_Interface_fops_FS;
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
+
+extern void InitRTOSObjects(void);
 
 /* USER CODE END EXPORTED_FUNCTIONS */
 

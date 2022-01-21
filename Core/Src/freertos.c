@@ -27,7 +27,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE BEGIN Includes */
+#include "string.h"
 #include "tftlcd.h"
+#include "usbd_cdc_if.h"
+#include "mb.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,12 +50,18 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+osThreadId vcpMbDataProcTaskHandle;
+osThreadId mbTaskHandle;
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
 
+
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+
+void StartVcpMbDataProcTask(void const * argument);
+void StartMbTask(void const * argument);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -100,7 +109,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
+
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -109,7 +118,9 @@ void MX_FREERTOS_Init(void) {
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+
+  InitRTOSObjects();
+
   /* USER CODE END RTOS_THREADS */
 
 }
@@ -127,11 +138,17 @@ void StartDefaultTask(void const * argument)
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN StartDefaultTask */
 	
+  // turn off the 3-color-led.
 	HAL_GPIO_WritePin(LEDB_GPIO_Port, LEDB_Pin, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(LEDG_GPIO_Port, LEDG_Pin, GPIO_PIN_SET);
 	
+  // initialize the TFT LCD
 	LCD_Init();
 	LCD_Clear(RED);
+
+  // create the vcp received data process task.
+	osThreadDef(vcpDataProcTask, StartVcpMbDataProcTask, osPriorityNormal, 0, 512);
+  vcpMbDataProcTaskHandle = osThreadCreate(osThread(vcpDataProcTask), NULL);
 	
   /* Infinite loop */
   for(;;)
@@ -144,5 +161,74 @@ void StartDefaultTask(void const * argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+
+/**
+ * @brief The task to connect the VCP RX data and the modbus protocol stack.
+ * 
+ * @param argument
+ */
+void StartVcpMbDataProcTask(void const * argument)
+{
+  CdcRxBuff_TypeDef tmpBuff;
+  
+  // create the modbus protocol stack task.
+  eMBInit(MB_RTU, 0X01, 1, 115200, MB_PAR_NONE);
+	eMBEnable();
+  osThreadDef (modbusPollingTask, StartMbTask, osPriorityNormal, 0, 256);
+  mbTaskHandle = osThreadCreate(osThread(modbusPollingTask), NULL);
+
+  // start to poll the vcp rx package.
+  for(;;)
+  {
+    osEvent evt = osMessageGet(cdcRxMsgHandle, osWaitForever);
+
+    if(evt.status == osEventMessage && evt.value.p != NULL)
+    {
+
+      HAL_GPIO_TogglePin(LEDG_GPIO_Port, LEDG_Pin);
+
+      // get the address of the pool
+      uint32_t pPool = (uint32_t)evt.value.p;
+
+      // copy the data to the temporary memory.
+      memcpy((uint8_t*)&tmpBuff, (uint8_t*)pPool, sizeof(CdcRxBuff_TypeDef));
+      
+      // free the pool.
+      osPoolFree(cdcRxPoolhandle, (void*)pPool);
+
+
+      // echo
+      extern USBD_HandleTypeDef hUsbDeviceFS;
+      USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+      CDC_Transmit_FS(tmpBuff.bufCdcRx, tmpBuff.Length);
+      while(hcdc->TxState != 0);
+    /*
+      if(tmpBuff.Length == 64)
+      {
+
+        extern USBD_HandleTypeDef hUsbDeviceFS;
+        USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+        while(hcdc->TxState != 0);
+
+        CDC_Transmit_FS(tmpBuff.bufCdcRx, 0);
+      }
+       */
+    }
+  }
+}
+
+/**
+ * @brief The task to run the modbus protocol stack.
+ * 
+ * @param argument
+ */
+void StartMbTask(void const * argument)
+{
+	for(;;)
+	{
+		eMBPoll();
+	}
+
+}
 
 /* USER CODE END Application */
