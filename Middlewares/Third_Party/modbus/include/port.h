@@ -27,8 +27,15 @@
 #include "cmsis_compiler.h"
 
 #include "main.h"
-#include "usart.h"
+
 #include "tim.h"
+
+#ifdef MB_OVER_VCP
+#include "fifo.h"
+#include "usbd_cdc_if.h"
+#else
+#include "usart.h"
+#endif
 
 #define	INLINE                      inline
 #define PR_BEGIN_EXTERN_C           extern "C" {

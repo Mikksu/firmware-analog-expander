@@ -31,6 +31,7 @@
 #include "tftlcd.h"
 #include "usbd_cdc_if.h"
 #include "mb.h"
+#include "fifo.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,12 +51,18 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-osThreadId vcpMbDataProcTaskHandle;
-osThreadId mbTaskHandle;
+
+/**
+ * @brief     The handle of the FIFO to save the data received from VCP.
+ */
+fifo_t        vcpRxFifo, *hVcpRxFifo;
+fifo_t        vcpTxFifo, *hVcpTxFifo;
+
+osThreadId    vcpMbDataProcTaskHandle;
+osThreadId    mbTaskHandle;
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
-
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -171,13 +178,20 @@ void StartVcpMbDataProcTask(void const * argument)
 {
   CdcRxBuff_TypeDef tmpBuff;
   
-  // create the modbus protocol stack task.
+  // create the MODBUS protocol stack task.
   eMBInit(MB_RTU, 0X01, 1, 115200, MB_PAR_NONE);
 	eMBEnable();
   osThreadDef (modbusPollingTask, StartMbTask, osPriorityNormal, 0, 256);
   mbTaskHandle = osThreadCreate(osThread(modbusPollingTask), NULL);
 
-  // start to poll the vcp rx package.
+  // initialize the FIFO to save data received from VCP.
+  hVcpRxFifo = &vcpRxFifo;
+  fifo_init(hVcpRxFifo);
+  hVcpTxFifo = &vcpTxFifo;
+  fifo_init(hVcpTxFifo);
+
+
+  // start to poll the VCP RX packages.
   for(;;)
   {
     osEvent evt = osMessageGet(cdcRxMsgHandle, osWaitForever);
@@ -196,23 +210,16 @@ void StartVcpMbDataProcTask(void const * argument)
       // free the pool.
       osPoolFree(cdcRxPoolhandle, (void*)pPool);
 
+      // push the data to the fifo.
+      for(int i = 0; i < tmpBuff.Length; i++)
+        fifo_put(hVcpRxFifo, tmpBuff.bufCdcRx[i]);
 
-      // echo
+
+      // echo for TEST purpose
       extern USBD_HandleTypeDef hUsbDeviceFS;
       USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
       CDC_Transmit_FS(tmpBuff.bufCdcRx, tmpBuff.Length);
       while(hcdc->TxState != 0);
-    /*
-      if(tmpBuff.Length == 64)
-      {
-
-        extern USBD_HandleTypeDef hUsbDeviceFS;
-        USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
-        while(hcdc->TxState != 0);
-
-        CDC_Transmit_FS(tmpBuff.bufCdcRx, 0);
-      }
-       */
     }
   }
 }

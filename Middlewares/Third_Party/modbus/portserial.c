@@ -31,6 +31,13 @@ static void prvvUARTTxReadyISR( void );
 static void prvvUARTRxISR( void );
 */
 
+#ifdef MB_OVER_VCP
+
+extern fifo_t         *hVcpRxFifo;
+extern fifo_t         *hVcpTxFifo;
+
+#else
+
 /*
  * @brief   The pointer to the usart which is used by the Modbus.
  */
@@ -48,11 +55,19 @@ uint16_t             rs485DePin           = 0;
  */
 GPIO_PinState       rs485DeActivateLevel  = GPIO_PIN_RESET;
 
+#endif
+
+
+
 
 /* ----------------------- Start implementation -----------------------------*/
 void
 vMBPortSerialEnable( BOOL xRxEnable, BOOL xTxEnable )
 {
+
+#ifdef MB_OVER_VCP
+
+#else
   /* If xRXEnable enable serial receive interrupts. If xTxENable enable
     * transmitter empty interrupts.
     */
@@ -103,13 +118,17 @@ vMBPortSerialEnable( BOOL xRxEnable, BOOL xTxEnable )
     __HAL_UART_ENABLE_IT(huart, UART_IT_ERR);
     __HAL_UART_ENABLE(huart);
   }
-
-  HAL_Delay(1);
+#endif
 }
 
 BOOL
 xMBPortSerialInit( UCHAR ucPORT, ULONG ulBaudRate, UCHAR ucDataBits, eMBParity eParity )
 {
+
+#ifdef MB_OVER_VCP
+  return TRUE;
+
+#else
 	/* 
   Do nothing, Initialization is handled by MX_USART3_UART_Init() 
   Fixed port, baudrate, databit and parity  
@@ -138,17 +157,26 @@ xMBPortSerialInit( UCHAR ucPORT, ULONG ulBaudRate, UCHAR ucDataBits, eMBParity e
    }
 
 	return TRUE;
+#endif
 }
 
 BOOL
 xMBPortSerialPutByte( CHAR ucByte )
 {
+
+#ifdef MB_OVER_VCP
+
+  fifo_put(hVcpTxFifo, (uint8_t)ucByte);
+  return TRUE;
+
+#else
     /* Put a byte in the UARTs transmit buffer. This function is called
      * by the protocol stack if pxMBFrameCBTransmitterEmpty( ) has been
      * called. */
 
 	return (HAL_OK == HAL_UART_Transmit(huart, (uint8_t*)&ucByte, 1, 10));
 
+#endif
 }
 
 BOOL
@@ -158,9 +186,19 @@ xMBPortSerialGetByte( CHAR * pucByte )
      * by the protocol stack after pxMBFrameCBByteReceived( ) has been called.
      */
 
-    *pucByte = (uint8_t)(huart->Instance->DR & (uint8_t)0x00FF);
-    return TRUE;
+#ifdef MB_OVER_VCP
+
+  int ret = fifo_get(hVcpRxFifo, (uint8_t*)pucByte);
+  return ret;
+
+#else
+
+  *pucByte = (uint8_t)(huart->Instance->DR & (uint8_t)0x00FF);
+  return TRUE;
+
+#endif
 }
+
 
 /* Create an interrupt handler for the transmit buffer empty interrupt
  * (or an equivalent) for your target processor. This function should then
