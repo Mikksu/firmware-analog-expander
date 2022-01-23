@@ -33,8 +33,19 @@
 #ifdef MB_OVER_VCP
 #include "fifo.h"
 #include "usbd_cdc_if.h"
+#include "cmsis_os.h"
+
+extern fifo_t         *hVcpRxFifo;
+extern fifo_t         *hVcpTxFifo;
+
+extern osThreadId     vcpMbRxTaskHandle;
+extern osThreadId     vcpMbTxTaskHandle;
+extern osThreadId     vcpMbTxPollTaskHandle;
+
 #else
+
 #include "usart.h"
+
 #endif
 
 #define	INLINE                      inline
@@ -64,3 +75,4 @@ typedef int32_t LONG;
 #endif
 
 #endif
+

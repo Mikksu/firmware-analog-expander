@@ -52,22 +52,24 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
 
-/**
- * @brief     The handle of the FIFO to save the data received from VCP.
- */
-fifo_t        vcpRxFifo, *hVcpRxFifo;
-fifo_t        vcpTxFifo, *hVcpTxFifo;
 
-osThreadId    vcpMbDataProcTaskHandle;
-osThreadId    mbTaskHandle;
+CdcRxBuff_TypeDef     vcpRxBuff;;
+uint8_t               vpcTxBuff[MAX_FIFO_SIZE];
+
+osThreadId            vcpMbRxTaskHandle;
+osThreadId            vcpMbTxTaskHandle;
+osThreadId            vcpMbTxPollTaskHandle;
+osThreadId            mbTaskHandle;
 
 /* USER CODE END Variables */
-osThreadId defaultTaskHandle;
+osThreadId            defaultTaskHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
-void StartVcpMbDataProcTask(void const * argument);
+void StartVcpMbRxTask(void const * argument);
+void StartVcpMbTxTask(void const * argument);
+void StartVcpTxPollTask(void const * argument);
 void StartMbTask(void const * argument);
 
 /* USER CODE END FunctionPrototypes */
@@ -121,12 +123,33 @@ void MX_FREERTOS_Init(void) {
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
+  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 256);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
 
-  InitRTOSObjects();
+  osThreadDef (modbusPollingTask, StartMbTask, osPriorityNormal, 0, 256);
+  mbTaskHandle = osThreadCreate(osThread(modbusPollingTask), NULL);
+
+  // create the vcp received data process task.
+  osThreadDef(vcpDataRecvTask, StartVcpMbRxTask, osPriorityNormal, 0, 256);
+  vcpMbRxTaskHandle = osThreadCreate(osThread(vcpDataRecvTask), NULL);
+
+  osThreadDef(vcpDataSendTask, StartVcpMbTxTask, osPriorityNormal, 0, 256);
+  vcpMbTxTaskHandle = osThreadCreate(osThread(vcpDataSendTask), NULL);
+
+  osThreadDef(vcpTxPollTask, StartVcpTxPollTask, osPriorityNormal, 0, 256);
+  vcpMbTxPollTaskHandle = osThreadCreate(osThread(vcpTxPollTask), NULL);
+  osThreadSuspend(vcpMbTxPollTaskHandle);
+
+
+
+  InitVcpRTOSObjects();
+
+  // create the MODBUS protocol stack task.
+  eMBInit(MB_RTU, 0X01, 1, 115200, MB_PAR_NONE);
+  eMBEnable();
+
 
   /* USER CODE END RTOS_THREADS */
 
@@ -153,10 +176,6 @@ void StartDefaultTask(void const * argument)
 	LCD_Init();
 	LCD_Clear(RED);
 
-  // create the vcp received data process task.
-	osThreadDef(vcpDataProcTask, StartVcpMbDataProcTask, osPriorityNormal, 0, 512);
-  vcpMbDataProcTaskHandle = osThreadCreate(osThread(vcpDataProcTask), NULL);
-	
   /* Infinite loop */
   for(;;)
   {
@@ -174,23 +193,8 @@ void StartDefaultTask(void const * argument)
  * 
  * @param argument
  */
-void StartVcpMbDataProcTask(void const * argument)
+void StartVcpMbRxTask(void const * argument)
 {
-  CdcRxBuff_TypeDef tmpBuff;
-  
-  // create the MODBUS protocol stack task.
-  eMBInit(MB_RTU, 0X01, 1, 115200, MB_PAR_NONE);
-	eMBEnable();
-  osThreadDef (modbusPollingTask, StartMbTask, osPriorityNormal, 0, 256);
-  mbTaskHandle = osThreadCreate(osThread(modbusPollingTask), NULL);
-
-  // initialize the FIFO to save data received from VCP.
-  hVcpRxFifo = &vcpRxFifo;
-  fifo_init(hVcpRxFifo);
-  hVcpTxFifo = &vcpTxFifo;
-  fifo_init(hVcpTxFifo);
-
-
   // start to poll the VCP RX packages.
   for(;;)
   {
@@ -205,24 +209,64 @@ void StartVcpMbDataProcTask(void const * argument)
       uint32_t pPool = (uint32_t)evt.value.p;
 
       // copy the data to the temporary memory.
-      memcpy((uint8_t*)&tmpBuff, (uint8_t*)pPool, sizeof(CdcRxBuff_TypeDef));
+      memcpy((uint8_t*)&vcpRxBuff, (uint8_t*)pPool, sizeof(CdcRxBuff_TypeDef));
       
       // free the pool.
       osPoolFree(cdcRxPoolhandle, (void*)pPool);
 
       // push the data to the fifo.
-      for(int i = 0; i < tmpBuff.Length; i++)
-        fifo_put(hVcpRxFifo, tmpBuff.bufCdcRx[i]);
-
-
-      // echo for TEST purpose
-      extern USBD_HandleTypeDef hUsbDeviceFS;
-      USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
-      CDC_Transmit_FS(tmpBuff.bufCdcRx, tmpBuff.Length);
-      while(hcdc->TxState != 0);
+      for(int i = 0; i < vcpRxBuff.Length; i++)
+      {
+        fifo_put(hVcpRxFifo, vcpRxBuff.bufCdcRx[i]);
+        pxMBFrameCBByteReceived();
+      }
     }
   }
 }
+
+/**
+ * @brief The task to transmit the Modbus frame via VCP.
+ * 
+ * @param argument 
+ */
+void StartVcpMbTxTask(void const * argument)
+{
+  for(;;)
+  {
+    osEvent evt = osSignalWait(0x1, osWaitForever);
+    if(evt.status == osEventSignal)
+    {
+      if((evt.value.signals & 0x1) > 0)
+      {
+        osThreadSuspend(vcpMbRxTaskHandle);
+        osThreadSuspend(vcpMbTxPollTaskHandle);
+        osThreadSuspend(mbTaskHandle);
+
+        int fifoLen = fifo_len(hVcpTxFifo);
+        fifo_out(hVcpTxFifo, vpcTxBuff, fifoLen);
+
+        extern USBD_HandleTypeDef hUsbDeviceFS;
+        USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+        CDC_Transmit_FS(vpcTxBuff, fifoLen);
+        while(hcdc->TxState != 0);
+
+        osThreadResume(vcpMbRxTaskHandle);
+        osThreadResume(mbTaskHandle);
+
+      }
+    }
+  }
+
+}
+
+void StartVcpTxPollTask(void const * argument)
+{
+  for(;;)
+  {
+    pxMBFrameCBTransmitterEmpty();
+  }
+}
+
 
 /**
  * @brief The task to run the modbus protocol stack.
@@ -234,6 +278,7 @@ void StartMbTask(void const * argument)
 	for(;;)
 	{
 		eMBPoll();
+		//osDelay(100);
 	}
 
 }

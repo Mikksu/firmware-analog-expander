@@ -78,7 +78,14 @@ static void prvvTIMERExpiredISR( void )
 
 void TimerExpiredCallback(void)
 {
-    prvvTIMERExpiredISR();
+#ifdef MB_OVER_VCP
+
+    fifo_reset(hVcpRxFifo);
+    fifo_reset(hVcpTxFifo);
+
+#endif
+
+  prvvTIMERExpiredISR();
 }
 
 

@@ -24,8 +24,8 @@
 #include "mbport.h"
 
 /* ----------------------- Variables ----------------------------------------*/
-static eMBEventType eQueuedEvent;
-static BOOL     xEventInQueue;
+static eMBEventType   eQueuedEvent;
+static BOOL           xEventInQueue;
 
 /* ----------------------- Start implementation -----------------------------*/
 BOOL

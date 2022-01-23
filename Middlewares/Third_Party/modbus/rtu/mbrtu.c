@@ -76,8 +76,7 @@ static volatile USHORT usSndBufferCount;
 static volatile USHORT usRcvBufferPos;
 
 /* ----------------------- Start implementation -----------------------------*/
-eMBErrorCode
-eMBRTUInit( UCHAR ucSlaveAddress, UCHAR ucPort, ULONG ulBaudRate, eMBParity eParity )
+eMBErrorCode eMBRTUInit( UCHAR ucSlaveAddress, UCHAR ucPort, ULONG ulBaudRate, eMBParity eParity )
 {
     eMBErrorCode    eStatus = MB_ENOERR;
     ULONG           usTimerT35_50us;
@@ -121,8 +120,7 @@ eMBRTUInit( UCHAR ucSlaveAddress, UCHAR ucPort, ULONG ulBaudRate, eMBParity ePar
     return eStatus;
 }
 
-void
-eMBRTUStart( void )
+void eMBRTUStart( void )
 {
     ENTER_CRITICAL_SECTION(  );
     /* Initially the receiver is in the state STATE_RX_INIT. we start
@@ -137,8 +135,7 @@ eMBRTUStart( void )
     EXIT_CRITICAL_SECTION(  );
 }
 
-void
-eMBRTUStop( void )
+void eMBRTUStop( void )
 {
     ENTER_CRITICAL_SECTION(  );
     vMBPortSerialEnable( FALSE, FALSE );
@@ -146,8 +143,7 @@ eMBRTUStop( void )
     EXIT_CRITICAL_SECTION(  );
 }
 
-eMBErrorCode
-eMBRTUReceive( UCHAR * pucRcvAddress, UCHAR ** pucFrame, USHORT * pusLength )
+eMBErrorCode eMBRTUReceive( UCHAR * pucRcvAddress, UCHAR ** pucFrame, USHORT * pusLength )
 {
     BOOL            xFrameReceived = FALSE;
     eMBErrorCode    eStatus = MB_ENOERR;
@@ -185,8 +181,7 @@ eMBRTUReceive( UCHAR * pucRcvAddress, UCHAR ** pucFrame, USHORT * pusLength )
     return eStatus;
 }
 
-eMBErrorCode 
-eMBRTUSend( UCHAR ucSlaveAddress, const UCHAR * pucFrame, USHORT usLength )
+eMBErrorCode eMBRTUSend( UCHAR ucSlaveAddress, const UCHAR * pucFrame, USHORT usLength )
 {
     eMBErrorCode    eStatus = MB_ENOERR;
     USHORT          usCRC16;
@@ -213,13 +208,6 @@ eMBRTUSend( UCHAR ucSlaveAddress, const UCHAR * pucFrame, USHORT usLength )
         ucRTUBuf[usSndBufferCount++] = ( UCHAR )( usCRC16 >> 8 );
 
 
-        //插入代码 启动第一次发送，这样才可以进入发送完成中断
-			/*
-        xMBPortSerialPutByte( ( CHAR )*pucSndBufferCur );
-        pucSndBufferCur++;
-        usSndBufferCount--;
-			*/
-
         /* Activate the transmitter. */
         eSndState = STATE_TX_XMIT;
         vMBPortSerialEnable( FALSE, TRUE );
@@ -232,13 +220,17 @@ eMBRTUSend( UCHAR ucSlaveAddress, const UCHAR * pucFrame, USHORT usLength )
     return eStatus;
 }
 
-BOOL
-xMBRTUReceiveFSM( void )
+BOOL xMBRTUReceiveFSM( void )
 {
     BOOL            xTaskNeedSwitch = FALSE;
     UCHAR           ucByte;
 
-    assert( eSndState == STATE_TX_IDLE );
+    //assert( eSndState == STATE_TX_IDLE );
+    if(eSndState != STATE_TX_IDLE)
+    {
+    	// the TX state should be IDLE when receiving charactors.
+    	return FALSE;
+    }
 
     /* Always read the character. */
     ( void )xMBPortSerialGetByte( ( CHAR * ) & ucByte );
@@ -292,12 +284,16 @@ xMBRTUReceiveFSM( void )
     return xTaskNeedSwitch;
 }
 
-BOOL
-xMBRTUTransmitFSM( void )
+BOOL xMBRTUTransmitFSM( void )
 {
     BOOL            xNeedPoll = FALSE;
 
-    assert( eRcvState == STATE_RX_IDLE );
+    //assert( eRcvState == STATE_RX_IDLE );
+    if(eRcvState != STATE_RX_IDLE)
+    {
+    	// the RX state should be IDLE when receiving charactors.
+    	return FALSE;
+    }
 
     switch ( eSndState )
     {
@@ -313,6 +309,7 @@ xMBRTUTransmitFSM( void )
         if( usSndBufferCount != 0 )
         {
             xMBPortSerialPutByte( ( CHAR )*pucSndBufferCur );
+
             pucSndBufferCur++;  /* next byte in sendbuffer. */
             usSndBufferCount--;
         }
@@ -330,8 +327,7 @@ xMBRTUTransmitFSM( void )
     return xNeedPoll;
 }
 
-BOOL
-xMBRTUTimerT35Expired( void )
+BOOL xMBRTUTimerT35Expired( void )
 {
     BOOL            xNeedPoll = FALSE;
 

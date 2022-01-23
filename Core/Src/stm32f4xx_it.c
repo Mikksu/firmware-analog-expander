@@ -241,6 +241,46 @@ void USART1_IRQHandler(void)
 {
   /* USER CODE BEGIN USART1_IRQn 0 */
 
+  // the target uart.
+  UART_HandleTypeDef *huart = &huart1;
+
+  // check if errors occurred.
+  uint32_t isrflags   = READ_REG(huart->Instance->SR);
+  uint32_t errorflags = 0x00U;
+  errorflags = (isrflags & (uint32_t)(USART_SR_PE | USART_SR_FE | USART_SR_ORE | USART_SR_NE));
+  if (errorflags == RESET)
+  {
+    // No error, check the interrupt source.
+
+    // 1. char received.
+    if((__HAL_UART_GET_FLAG(huart,  UART_FLAG_RXNE) != RESET)
+        && (__HAL_UART_GET_IT_SOURCE(huart, UART_IT_RXNE) != RESET))
+    {
+      pxMBFrameCBByteReceived();
+      __HAL_UART_CLEAR_PEFLAG(huart);
+    }
+
+    // 2. char has been send to DR register.
+    else if((__HAL_UART_GET_FLAG(huart, UART_FLAG_TC) !=  RESET)
+        && (__HAL_UART_GET_IT_SOURCE(huart, UART_IT_TC) != RESET))
+    {
+      pxMBFrameCBTransmitterEmpty();
+    }
+  }
+  else
+  {
+    // clear the errors
+    __HAL_UART_CLEAR_PEFLAG(huart);
+
+    // set the uart to receive_it mode.
+    __HAL_UART_ENABLE_IT(huart, UART_IT_RXNE);
+    __HAL_UART_DISABLE_IT(huart, UART_IT_TC);
+    __HAL_UART_ENABLE(huart);
+  }
+
+  return;
+
+
   /* USER CODE END USART1_IRQn 0 */
   HAL_UART_IRQHandler(&huart1);
   /* USER CODE BEGIN USART1_IRQn 1 */

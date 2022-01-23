@@ -370,7 +370,7 @@ eMBPoll( void )
         case EV_EXECUTE:
             ucFunctionCode = ucMBFrame[MB_PDU_FUNC_OFF];
             eException = MB_EX_ILLEGAL_FUNCTION;
-            for( i = 0; i < MB_FUNC_HANDLERS_MAX; i++ )
+             for( i = 0; i < MB_FUNC_HANDLERS_MAX; i++ )
             {
                 /* No more function handlers registered. Abort. */
                 if( xFuncHandlers[i].ucFunctionCode == 0 )
@@ -404,6 +404,11 @@ eMBPoll( void )
             break;
 
         case EV_FRAME_SENT:
+
+#ifdef MB_OVER_VCP
+            osSignalSet(vcpMbTxTaskHandle, 0x1);
+
+#endif
             break;
         }
     }

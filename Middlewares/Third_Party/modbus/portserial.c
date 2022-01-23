@@ -33,8 +33,11 @@ static void prvvUARTRxISR( void );
 
 #ifdef MB_OVER_VCP
 
-extern fifo_t         *hVcpRxFifo;
-extern fifo_t         *hVcpTxFifo;
+/**
+ * @brief     The handle of the FIFO to save the data received from VCP.
+ */
+fifo_t                vcpRxFifo, *hVcpRxFifo;
+fifo_t                vcpTxFifo, *hVcpTxFifo;
 
 #else
 
@@ -66,6 +69,31 @@ vMBPortSerialEnable( BOOL xRxEnable, BOOL xTxEnable )
 {
 
 #ifdef MB_OVER_VCP
+
+  if(xTxEnable == TRUE)
+  {
+    osThreadResume(vcpMbTxPollTaskHandle);
+  }
+
+  /*
+  if(xRxEnable == TRUE)
+  {
+    osThreadResume(vcpMbRxTaskHandle);
+  }
+  else
+  {
+    osThreadSuspend(vcpMbRxTaskHandle);
+  }
+
+  if(xTxEnable == TRUE)
+    {
+      osThreadResume(vcpMbTxPollTaskHandle);
+    }
+    else
+    {
+      osThreadSuspend(vcpMbTxPollTaskHandle);
+    }
+    */
 
 #else
   /* If xRXEnable enable serial receive interrupts. If xTxENable enable
@@ -121,11 +149,18 @@ vMBPortSerialEnable( BOOL xRxEnable, BOOL xTxEnable )
 #endif
 }
 
-BOOL
-xMBPortSerialInit( UCHAR ucPORT, ULONG ulBaudRate, UCHAR ucDataBits, eMBParity eParity )
+BOOL xMBPortSerialInit( UCHAR ucPORT, ULONG ulBaudRate, UCHAR ucDataBits, eMBParity eParity )
 {
 
 #ifdef MB_OVER_VCP
+
+  // initialize the FIFO to save data received from VCP.
+  hVcpRxFifo = &vcpRxFifo;
+  fifo_init(hVcpRxFifo);
+
+  hVcpTxFifo = &vcpTxFifo;
+  fifo_init(hVcpTxFifo);
+
   return TRUE;
 
 #else
